@@ -238,6 +238,8 @@ When `--output-dir` is provided, the training run writes:
 - `config.json`
 - `history.json`
 - `summary.json`
+- `checkpoints/best.pt`
+- `checkpoints/final.pt`
 - `training_curves.png`
 - `channel_mae.png`
 - `activity_mae.png`

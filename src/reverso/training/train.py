@@ -294,6 +294,33 @@ def _prefix_metrics(prefix: str, metrics: dict[str, float]) -> dict[str, float]:
     return {f"{prefix}_{name}": value for name, value in metrics.items()}
 
 
+def _save_checkpoint(
+    output_dir: Path,
+    *,
+    name: str,
+    model: nn.Module,
+    config: TrainingConfig,
+    epoch: int,
+    metrics: dict[str, float] | None,
+) -> Path:
+    """Save a model checkpoint under output_dir/checkpoints."""
+    checkpoints_dir = output_dir / "checkpoints"
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = checkpoints_dir / f"{name}.pt"
+    model_state_dict = {
+        key: value.detach().cpu()
+        for key, value in model.state_dict().items()
+    }
+    payload = {
+        "epoch": epoch,
+        "metrics": metrics,
+        "training_config": config,
+        "model_state_dict": model_state_dict,
+    }
+    torch.save(payload, checkpoint_path)
+    return checkpoint_path
+
+
 def run_training(config: TrainingConfig) -> dict[str, Any]:
     """Run training and return the trained model and logged history."""
     set_seed(config.seed)
@@ -313,6 +340,10 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
         grad_scaler = GradScaler(device="cuda")
 
     history: list[dict[str, float]] = []
+    best_val_loss = float("inf")
+    best_epoch = 0
+    best_val_metrics: dict[str, float] | None = None
+    output_dir = config.resolved_output_dir()
     for epoch in range(1, config.num_epochs + 1):
         train_metrics = train_one_epoch(
             model,
@@ -342,6 +373,19 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
         history.append(epoch_summary)
         print(json.dumps(epoch_summary, sort_keys=True))
 
+        if output_dir is not None and val_metrics["loss"] < best_val_loss:
+            best_val_loss = float(val_metrics["loss"])
+            best_epoch = epoch
+            best_val_metrics = dict(val_metrics)
+            _save_checkpoint(
+                output_dir,
+                name="best",
+                model=model,
+                config=config,
+                epoch=epoch,
+                metrics=best_val_metrics,
+            )
+
     test_metrics = None
     if "test" in dataloaders:
         test_metrics = evaluate(
@@ -355,8 +399,15 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
         print(json.dumps(_prefix_metrics("test", test_metrics), sort_keys=True))
 
     artifact_paths = None
-    output_dir = config.resolved_output_dir()
     if output_dir is not None:
+        final_checkpoint = _save_checkpoint(
+            output_dir,
+            name="final",
+            model=model,
+            config=config,
+            epoch=config.num_epochs,
+            metrics=history[-1] if history else None,
+        )
         artifact_paths = save_run_artifacts(
             output_dir,
             config=config,
@@ -370,6 +421,9 @@ def run_training(config: TrainingConfig) -> dict[str, Any]:
             amp_enabled=config.amp,
             amp_dtype=amp_dtype,
         )
+        artifact_paths["checkpoint_final"] = final_checkpoint
+        if best_epoch > 0:
+            artifact_paths["checkpoint_best"] = output_dir / "checkpoints" / "best.pt"
 
     return {
         "model": model,

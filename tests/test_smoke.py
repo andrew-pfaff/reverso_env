@@ -189,9 +189,11 @@ class ReversoSmokeTests(unittest.TestCase):
                 "prediction_example",
                 "prediction_example_stairs_up",
                 "prediction_example_stairs_down",
-            }:
+                }:
                 self.assertIn(required_key, artifact_paths)
                 self.assertTrue(Path(artifact_paths[required_key]).is_file())
+            self.assertTrue(Path(artifact_paths["checkpoint_final"]).is_file())
+            self.assertTrue(Path(artifact_paths["checkpoint_best"]).is_file())
 
     def test_augmented_stairs_training_stays_finite(self) -> None:
         set_seed(42)
