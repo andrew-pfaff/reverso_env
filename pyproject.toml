@@ -18,8 +18,8 @@ dependencies = [
 
 [project.optional-dependencies]
 gpu = [
-    "flash-linear-attention",
-    "flashfftconv",
+    "flash-linear-attention>=0.3.2",
+    "flashfftconv @ git+https://github.com/HazyResearch/flash-fft-conv.git#subdirectory=csrc/flashfftconv",
 ]
 
 [tool.setuptools]

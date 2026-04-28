@@ -190,6 +190,8 @@ Install the optional GPU dependencies:
 .venv/bin/pip install -e '.[gpu]'
 ```
 
+This pulls `flash-linear-attention` from PyPI and `flashfftconv` from the upstream GitHub source.
+
 Then launch the paper-aligned backend path with mixed precision:
 
 ```bash
