@@ -443,6 +443,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--pred-len", type=int, default=64)
     parser.add_argument("--d-model", type=int, default=32)
     parser.add_argument("--n-layers", type=int, default=2)
+    parser.add_argument("--n-heads", type=int, default=4)
     parser.add_argument("--long-conv-backend", default="native")
     parser.add_argument("--deltanet-backend", default="native")
     parser.add_argument("--batch-size", type=int, default=32)
@@ -485,6 +486,7 @@ def main() -> None:
         pred_len=args.pred_len,
         d_model=args.d_model,
         n_layers=args.n_layers,
+        n_heads=args.n_heads,
         long_conv_backend=args.long_conv_backend,
         deltanet_backend=args.deltanet_backend,
         batch_size=args.batch_size,
