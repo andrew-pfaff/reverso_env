@@ -188,9 +188,12 @@ Install the optional GPU dependencies:
 
 ```bash
 .venv/bin/pip install -e '.[gpu]'
+.venv/bin/pip install --no-build-isolation \
+  "git+https://github.com/HazyResearch/flash-fft-conv.git#subdirectory=csrc/flashfftconv"
 ```
 
-This pulls `flash-linear-attention` from PyPI and `flashfftconv` from the upstream GitHub source.
+This pulls `flash-linear-attention` from PyPI and installs `flashfftconv` from the upstream GitHub source.
+The separate `--no-build-isolation` step is required because the FlashFFTConv build needs to see the active `torch` install.
 
 Then launch the paper-aligned backend path with mixed precision:
 
