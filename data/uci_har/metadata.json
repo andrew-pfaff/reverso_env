@@ -1,0 +1,38 @@
+{
+  "dataset_name": "uci_har",
+  "source_hz": 50,
+  "target_hz": 100,
+  "n_subjects": 30,
+  "sensor_placement": "waist",
+  "axis_convention": "ISB_Z_up",
+  "axis_transform_applied": "rotation_[[0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [1.0, 0.0, 0.0]]",
+  "label_map": {
+    "1": 1,
+    "2": 8,
+    "3": 9,
+    "4": 4,
+    "5": 3,
+    "6": 5
+  },
+  "version": "1.0",
+  "processed_date": "2026-03-04",
+  "window_len": 512,
+  "window_stride": 256,
+  "fall_stride": 50,
+  "n_windows_total": 5125,
+  "n_fall_windows": 0,
+  "channels": [
+    "acc_x",
+    "acc_y",
+    "acc_z",
+    "gyr_x",
+    "gyr_y",
+    "gyr_z"
+  ],
+  "gravity_retained": true,
+  "filter": "none",
+  "normalisation": "fixed_range_scaling",
+  "acc_range_g": 16.0,
+  "gyro_range_rads": 34.906585,
+  "notes": ""
+}
