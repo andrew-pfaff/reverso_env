@@ -250,7 +250,7 @@ def plot_prediction_example(
         else:
             autocast_context = nullcontext()
         with autocast_context:
-            prediction = model(context).cpu()
+            prediction = model(context).detach().to(dtype=torch.float32).cpu()
 
     context_cpu = context.cpu()
     target_cpu = target.cpu()
@@ -277,14 +277,19 @@ def plot_prediction_example(
             context_index = input_channel_to_index[channel_name]
             axis.plot(
                 context_time,
-                context_example[-context_tail:, context_index].numpy(),
+                context_example[-context_tail:, context_index].to(dtype=torch.float32).numpy(),
                 label="context",
                 color="#6c757d",
             )
-        axis.plot(future_time, target_example[:, channel_index].numpy(), label="truth", color="#1d3557")
         axis.plot(
             future_time,
-            prediction_example[:, channel_index].numpy(),
+            target_example[:, channel_index].to(dtype=torch.float32).numpy(),
+            label="truth",
+            color="#1d3557",
+        )
+        axis.plot(
+            future_time,
+            prediction_example[:, channel_index].to(dtype=torch.float32).numpy(),
             label="prediction",
             color="#e63946",
             linestyle="--",
