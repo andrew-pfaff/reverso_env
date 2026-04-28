@@ -1,0 +1,12 @@
+/data/
+/.codex
+/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+build/
+dist/
+*.egg-info/
+*.pdf
+*.ipynb
+runs/
