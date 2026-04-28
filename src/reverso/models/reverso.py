@@ -87,15 +87,16 @@ class LongConvolutionMixer(nn.Module):
             bias=False,
         )
         self.norm = nn.LayerNorm(d_model)
+        self.residual_scale = 0.1
 
     def forward(self, x: Tensor) -> Tensor:
         residual = x
         x = x.float()
         long_features = _causal_depthwise_conv1d(x, self.long_conv)
         short_features = _causal_depthwise_conv1d(x, self.short_conv)
-        mixed = F.silu(short_features * long_features)
+        mixed = torch.tanh(F.silu(short_features * long_features))
         mixed = self.norm(mixed).to(dtype=residual.dtype)
-        return residual + mixed
+        return residual + self.residual_scale * mixed
 
 
 class FlashFFTConvMixer(nn.Module):
@@ -127,6 +128,7 @@ class FlashFFTConvMixer(nn.Module):
         self.long_kernel_weights = nn.Parameter(torch.empty(d_model, long_kernel, dtype=torch.float32))
         nn.init.normal_(self.long_kernel_weights, mean=0.0, std=0.02)
         self.norm = nn.LayerNorm(d_model)
+        self.residual_scale = 0.1
         self.fft_size = fft_size
         self.flashfftconv = FlashFFTConv(fft_size)
 
@@ -142,9 +144,9 @@ class FlashFFTConvMixer(nn.Module):
         long_input = x.transpose(1, 2).contiguous()
         long_kernel_weights = self.long_kernel_weights.to(dtype=x.dtype)
         long_features = self.flashfftconv(long_input, long_kernel_weights).transpose(1, 2)
-        mixed = F.silu(short_features * long_features)
+        mixed = torch.tanh(F.silu(short_features * long_features))
         mixed = self.norm(mixed).to(dtype=x.dtype)
-        return x + mixed
+        return x + self.residual_scale * mixed
 
 
 class ChannelMixer(nn.Module):
@@ -156,13 +158,14 @@ class ChannelMixer(nn.Module):
         self.up = nn.Linear(d_model, hidden_dim)
         self.down = nn.Linear(hidden_dim, d_model)
         self.norm = nn.LayerNorm(d_model)
+        self.residual_scale = 0.1
 
     def forward(self, x: Tensor) -> Tensor:
         residual = x
         x = x.float()
-        mixed = self.down(F.relu(self.up(x)))
+        mixed = torch.tanh(self.down(F.relu(self.up(x))))
         mixed = self.norm(mixed).to(dtype=residual.dtype)
-        return residual + mixed
+        return residual + self.residual_scale * mixed
 
 
 class DeltaNetMixer(nn.Module):
@@ -187,11 +190,12 @@ class DeltaNetMixer(nn.Module):
         self.v_conv = nn.Conv1d(d_model, d_model, kernel_size=short_kernel, groups=d_model, bias=False)
 
         self.norm = nn.LayerNorm(d_model)
+        self.residual_scale = 0.1
 
     def _project(self, x: Tensor, proj: nn.Linear, conv: nn.Conv1d) -> Tensor:
         projected = proj(x)
         mixed = _causal_depthwise_conv1d(projected, conv)
-        return mixed.reshape(x.shape[0], x.shape[1], self.n_heads, self.head_dim)
+        return torch.tanh(mixed).reshape(x.shape[0], x.shape[1], self.n_heads, self.head_dim)
 
     def forward(self, x: Tensor) -> Tensor:
         batch_size, seq_len, _ = x.shape
@@ -219,13 +223,14 @@ class DeltaNetMixer(nn.Module):
             forget = state_k.unsqueeze(-1) * k_step.unsqueeze(-2)
             write = v_step.unsqueeze(-1) * k_step.unsqueeze(-2)
             state = state - beta_step * forget + beta_step * write
+            state = torch.clamp(state, min=-5.0, max=5.0)
 
             output_step = torch.matmul(state, q_step.unsqueeze(-1)).squeeze(-1)
             outputs.append(output_step)
 
         mixed = torch.stack(outputs, dim=1).reshape(batch_size, seq_len, self.d_model)
         mixed = self.norm(mixed).to(dtype=residual.dtype)
-        return residual + mixed
+        return residual + self.residual_scale * mixed
 
 
 class FLADeltaNetMixer(nn.Module):
@@ -250,6 +255,7 @@ class FLADeltaNetMixer(nn.Module):
         }
         self.layer = FLADeltaNet(**filtered_kwargs)
         self.norm = nn.LayerNorm(d_model)
+        self.residual_scale = 0.1
 
     def forward(self, x: Tensor) -> Tensor:
         if not x.is_cuda:
@@ -262,7 +268,7 @@ class FLADeltaNetMixer(nn.Module):
         if isinstance(mixed, tuple):
             mixed = mixed[0]
         mixed = self.norm(mixed).to(dtype=residual.dtype)
-        return residual + mixed
+        return residual + self.residual_scale * mixed
 
 
 class ReversoBlock(nn.Module):
@@ -288,19 +294,20 @@ class AttentionDecoderHead(nn.Module):
         self.k_proj = nn.Linear(d_model, d_model)
         self.v_proj = nn.Linear(d_model, d_model)
         self.output_proj = nn.Linear(d_model, output_size)
+        self.residual_scale = 0.1
 
     def forward(self, x: Tensor) -> Tensor:
         residual = x
         x = x.float()
         query_seed = self.length_projection(x.transpose(1, 2)).transpose(1, 2)
-        query = self.q_proj(query_seed)
-        key = self.k_proj(x)
-        value = self.v_proj(x)
+        query = torch.tanh(self.q_proj(query_seed))
+        key = torch.tanh(self.k_proj(x))
+        value = torch.tanh(self.v_proj(x))
 
         scores = torch.matmul(query, key.transpose(-1, -2)) / math.sqrt(x.shape[-1])
         weights = torch.softmax(scores, dim=-1)
         attended = torch.matmul(weights, value)
-        return self.output_proj(attended).to(dtype=residual.dtype)
+        return (self.residual_scale * self.output_proj(attended)).to(dtype=residual.dtype)
 
 
 class Reverso(nn.Module):
