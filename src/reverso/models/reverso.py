@@ -89,10 +89,13 @@ class LongConvolutionMixer(nn.Module):
         self.norm = nn.LayerNorm(d_model)
 
     def forward(self, x: Tensor) -> Tensor:
+        residual = x
+        x = x.float()
         long_features = _causal_depthwise_conv1d(x, self.long_conv)
         short_features = _causal_depthwise_conv1d(x, self.short_conv)
         mixed = F.silu(short_features * long_features)
-        return x + self.norm(mixed)
+        mixed = self.norm(mixed).to(dtype=residual.dtype)
+        return residual + mixed
 
 
 class FlashFFTConvMixer(nn.Module):
@@ -135,12 +138,13 @@ class FlashFFTConvMixer(nn.Module):
                 "FlashFFTConv backend expects torch.float16 or torch.bfloat16 activations."
             )
 
-        short_features = _causal_depthwise_conv1d(x, self.short_conv)
+        short_features = _causal_depthwise_conv1d(x.float(), self.short_conv)
         long_input = x.transpose(1, 2).contiguous()
         long_kernel_weights = self.long_kernel_weights.to(dtype=x.dtype)
         long_features = self.flashfftconv(long_input, long_kernel_weights).transpose(1, 2)
         mixed = F.silu(short_features * long_features)
-        return x + self.norm(mixed)
+        mixed = self.norm(mixed).to(dtype=x.dtype)
+        return x + mixed
 
 
 class ChannelMixer(nn.Module):
@@ -154,8 +158,11 @@ class ChannelMixer(nn.Module):
         self.norm = nn.LayerNorm(d_model)
 
     def forward(self, x: Tensor) -> Tensor:
+        residual = x
+        x = x.float()
         mixed = self.down(F.relu(self.up(x)))
-        return x + self.norm(mixed)
+        mixed = self.norm(mixed).to(dtype=residual.dtype)
+        return residual + mixed
 
 
 class DeltaNetMixer(nn.Module):
@@ -188,7 +195,8 @@ class DeltaNetMixer(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         batch_size, seq_len, _ = x.shape
-        weaved = x.clone()
+        residual = x
+        weaved = x.float().clone()
         weaved[:, 0, :] = weaved[:, 0, :] + x[:, -1, :]
 
         q = self._project(weaved, self.q_proj, self.q_conv)
@@ -198,7 +206,7 @@ class DeltaNetMixer(nn.Module):
 
         q = q / math.sqrt(self.head_dim)
 
-        state = x.new_zeros(batch_size, self.n_heads, self.head_dim, self.head_dim)
+        state = x.new_zeros(batch_size, self.n_heads, self.head_dim, self.head_dim, dtype=torch.float32)
         outputs: list[Tensor] = []
 
         for step in range(seq_len):
@@ -216,7 +224,8 @@ class DeltaNetMixer(nn.Module):
             outputs.append(output_step)
 
         mixed = torch.stack(outputs, dim=1).reshape(batch_size, seq_len, self.d_model)
-        return x + self.norm(mixed)
+        mixed = self.norm(mixed).to(dtype=residual.dtype)
+        return residual + mixed
 
 
 class FLADeltaNetMixer(nn.Module):
@@ -246,12 +255,14 @@ class FLADeltaNetMixer(nn.Module):
         if not x.is_cuda:
             raise RuntimeError("fla DeltaNet backend is intended for GPU execution.")
 
-        weaved = x.clone()
+        residual = x
+        weaved = x.float().clone()
         weaved[:, 0, :] = weaved[:, 0, :] + x[:, -1, :]
         mixed = self.layer(weaved)
         if isinstance(mixed, tuple):
             mixed = mixed[0]
-        return x + self.norm(mixed)
+        mixed = self.norm(mixed).to(dtype=residual.dtype)
+        return residual + mixed
 
 
 class ReversoBlock(nn.Module):
@@ -279,6 +290,8 @@ class AttentionDecoderHead(nn.Module):
         self.output_proj = nn.Linear(d_model, output_size)
 
     def forward(self, x: Tensor) -> Tensor:
+        residual = x
+        x = x.float()
         query_seed = self.length_projection(x.transpose(1, 2)).transpose(1, 2)
         query = self.q_proj(query_seed)
         key = self.k_proj(x)
@@ -287,7 +300,7 @@ class AttentionDecoderHead(nn.Module):
         scores = torch.matmul(query, key.transpose(-1, -2)) / math.sqrt(x.shape[-1])
         weights = torch.softmax(scores, dim=-1)
         attended = torch.matmul(weights, value)
-        return self.output_proj(attended)
+        return self.output_proj(attended).to(dtype=residual.dtype)
 
 
 class Reverso(nn.Module):
